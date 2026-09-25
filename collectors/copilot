@@ -1,0 +1,49 @@
+#!/usr/bin/python3
+# GitHub Copilot: premium-request / chat / completion quotas for the account
+# signed in to the GitHub CLI (`gh auth login`).
+import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from _agentusage import find_command, http_json, limit, parse_args, remote_record, run_command
+
+HELP = "Run `gh auth login --web` with the account that holds your Copilot plan."
+QUOTAS = [("premium_interactions", "Premium requests"), ("chat", "Chat"), ("completions", "Completions")]
+
+
+def token():
+  gh = find_command("gh")
+  return run_command([gh, "auth", "token"]).strip() if gh else ""
+
+
+def fetch(tok):
+  data = http_json("https://api.github.com/copilot_internal/user", {
+    "Authorization": f"token {tok}",
+    "Editor-Version": "vscode/1.96.2",
+    "Editor-Plugin-Version": "copilot-chat/0.26.7",
+    "User-Agent": "GitHubCopilotChat/0.26.7",
+    "X-GitHub-Api-Version": "2025-04-01",
+  })
+  reset = data.get("quota_reset_date_utc") or data.get("quota_reset_date") or ""
+  limits = []
+  snapshots = data.get("quota_snapshots") or {}
+  for key, label in QUOTAS:
+    quota = snapshots.get(key)
+    # Unlimited pools and ones the plan does not include (entitlement 0,
+    # e.g. premium requests on Copilot Free) have nothing to meter.
+    if not isinstance(quota, dict) or quota.get("unlimited") or quota.get("entitlement") == 0:
+      continue
+    remaining = quota.get("percent_remaining")
+    if remaining is None:
+      entitlement, left = quota.get("entitlement"), quota.get("remaining")
+      if not entitlement:
+        continue
+      remaining = 100.0 * float(left or 0) / float(entitlement)
+    # Copilot quotas reset with the billing month.
+    limits.append(limit(f"{label} (monthly)", (100.0 - float(remaining)) / 100.0, reset, label))
+  sku = str(data.get("access_type_sku") or "")
+  plan = "Free" if sku.startswith("free") else str(data.get("copilot_plan") or "").replace("_", " ").title()
+  return {"limits": limits, "tierLabel": plan}
+
+
+parse_args()
+remote_record("copilot", "Copilot", token(), fetch, HELP)

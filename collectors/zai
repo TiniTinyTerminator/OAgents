@@ -1,0 +1,36 @@
+#!/usr/bin/python3
+# Z.ai GLM Coding Plan: 5-hour and weekly prompt windows plus the monthly MCP
+# allowance. Set "region": "cn" for open.bigmodel.cn accounts.
+import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from _agentusage import agent_config, api_key, http_json, limit, parse_args, remote_record
+
+HELP = "Set ZAI_API_KEY or add {\"zai\": {\"apiKey\": \"…\"}} to ~/.config/ttt/agents.json."
+CN = str(agent_config("zai").get("region") or "").lower() == "cn"
+# `unit` identifies the window; the mapping is undocumented but stable.
+WINDOWS = {3: ("Session (5-hour)", "Session"), 6: ("Weekly (7-day)", "Weekly")}
+
+
+def fetch(key):
+  base = "https://open.bigmodel.cn" if CN else "https://api.z.ai"
+  data = http_json(base + "/api/monitor/usage/quota/limit", {"Authorization": key, "Accept-Language": "en-US,en"}) or {}
+  if not data.get("success") or data.get("code") not in (0, 200):
+    raise ValueError(data.get("msg") or f"API reported code {data.get('code')}")
+  info = data.get("data") or {}
+  limits = []
+  for entry in info.get("limits") or []:
+    if entry.get("percentage") is None:
+      continue
+    kind, pct = entry.get("type"), float(entry["percentage"]) / 100.0
+    if kind in ("TOKENS_LIMIT", "CREDIT_LIMIT") and entry.get("unit") in WINDOWS:
+      label, title = WINDOWS[entry["unit"]]
+      limits.append(limit(label, pct, entry.get("nextResetTime"), title))
+    elif kind == "TIME_LIMIT":
+      limits.append(limit("MCP calls (monthly)", pct, entry.get("nextResetTime"), "MCP (monthly)"))
+  level = str(info.get("level") or "").title()
+  return {"limits": limits, "tierLabel": f"GLM Coding {level}".strip()}
+
+
+parse_args()
+remote_record("zai", "Z.ai", api_key("zai", ["ZAI_API_KEY", "ZHIPU_API_KEY"], ["zai-coding-plan", "zhipuai-coding-plan", "zai"]), fetch, HELP)

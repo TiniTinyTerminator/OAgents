@@ -1,0 +1,55 @@
+#!/usr/bin/python3
+# Cursor: included-usage pools (Auto / API) for the account signed in to the
+# Cursor IDE or cursor-agent.
+import base64
+import json
+import os
+import sqlite3
+import sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from _agentusage import XDG_CONFIG, http_json, limit, parse_args, read_json, remote_record, sqlite_ro
+
+HELP = "Sign in to the Cursor IDE or run `cursor-agent login`."
+UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+
+def token():
+  db = XDG_CONFIG / "Cursor" / "User" / "globalStorage" / "state.vscdb"
+  if db.is_file():
+    try:
+      conn = sqlite_ro(db)
+      try:
+        row = conn.execute("SELECT value FROM ItemTable WHERE key = 'cursorAuth/accessToken'").fetchone()
+      finally:
+        conn.close()
+      if row and row[0]:
+        return str(row[0]).strip().strip('"')
+    except sqlite3.Error:
+      pass
+  auth = read_json(XDG_CONFIG / "cursor" / "auth.json") or {}
+  return str(auth.get("accessToken") or "").strip()
+
+
+def user_id(tok):
+  payload = tok.split(".")[1]
+  claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+  return str(claims.get("sub") or "").split("|")[1]
+
+
+def fetch(tok):
+  cookie = f"WorkosCursorSessionToken={user_id(tok)}%3A%3A{tok}"
+  data = http_json("https://cursor.com/api/usage-summary", {
+    "Cookie": cookie, "Origin": "https://cursor.com", "Referer": "https://cursor.com/dashboard", "User-Agent": UA,
+  }) or {}
+  reset = data.get("billingCycleEnd") or ""
+  plan = (data.get("individualUsage") or {}).get("plan") or {}
+  limits = []
+  if not data.get("isUnlimited"):
+    for key, label in (("totalPercentUsed", "Included"), ("autoPercentUsed", "Auto"), ("apiPercentUsed", "API")):
+      if plan.get(key) is not None:
+        limits.append(limit(f"{label} (monthly)", float(plan[key]) / 100.0, reset, f"{label} (monthly)"))
+  return {"limits": limits, "tierLabel": str(data.get("membershipType") or "").replace("_", " ").title()}
+
+
+parse_args()
+remote_record("cursor", "Cursor", token(), fetch, HELP)

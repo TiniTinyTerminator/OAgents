@@ -1,0 +1,24 @@
+#!/usr/bin/python3
+# DeepSeek: prepaid API balance.
+import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from _agentusage import api_key, balance, http_json, parse_args, remote_record
+
+HELP = "Set DEEPSEEK_API_KEY or add {\"deepseek\": {\"apiKey\": \"…\"}} to ~/.config/ttt/agents.json."
+
+
+def fetch(key):
+  data = http_json("https://api.deepseek.com/user/balance", {"Authorization": f"Bearer {key}"}) or {}
+  infos = {str(i.get("currency")): i for i in data.get("balance_infos") or [] if isinstance(i, dict)}
+  info = infos.get("USD") or infos.get("CNY")
+  if not info:
+    raise ValueError("no USD or CNY balance")
+  result = {"balance": balance(float(info.get("total_balance") or 0), currency=info.get("currency")), "tierLabel": "Prepaid"}
+  if data.get("is_available") is False:
+    result["usageStatusText"] = "Balance exhausted"
+  return result
+
+
+parse_args()
+remote_record("deepseek", "DeepSeek", api_key("deepseek", ["DEEPSEEK_API_KEY"], ["deepseek"]), fetch, HELP)

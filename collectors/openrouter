@@ -1,0 +1,30 @@
+#!/usr/bin/python3
+# OpenRouter: prepaid credit balance, plus this key's spend-limit window.
+import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from _agentusage import api_key, balance, http_json, limit, parse_args, remote_record
+
+HELP = "Set OPENROUTER_API_KEY or add {\"openrouter\": {\"apiKey\": \"…\"}} to ~/.config/ttt/agents.json."
+BASE = "https://openrouter.ai/api/v1"
+
+
+def fetch(key):
+  headers = {"Authorization": f"Bearer {key}"}
+  credits = (http_json(BASE + "/credits", headers) or {}).get("data") or {}
+  funded, spent = float(credits.get("total_credits") or 0), float(credits.get("total_usage") or 0)
+  result = {"balance": balance(funded - spent, funded, spent), "tierLabel": "Prepaid"}
+  try:
+    key_info = (http_json(BASE + "/key", headers) or {}).get("data") or {}
+    if key_info.get("limit"):
+      used = float(key_info.get("usage") or 0) / float(key_info["limit"])
+      result["limits"] = [limit("Key spend limit", used, "", "Key limit")]
+    if key_info.get("is_free_tier"):
+      result["tierLabel"] = "Free tier"
+  except Exception:
+    pass
+  return result
+
+
+parse_args()
+remote_record("openrouter", "OpenRouter", api_key("openrouter", ["OPENROUTER_API_KEY"], ["openrouter"]), fetch, HELP)

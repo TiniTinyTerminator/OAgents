@@ -1,0 +1,36 @@
+#!/usr/bin/python3
+# MiniMax Token Plan: rolling interval and weekly windows. Set "region": "cn"
+# for minimaxi.com accounts.
+import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from _agentusage import agent_config, api_key, http_json, limit, parse_args, remote_record
+
+HELP = "Set MINIMAX_API_KEY or add {\"minimax\": {\"apiKey\": \"…\"}} to ~/.config/ttt/agents.json."
+CN = str(agent_config("minimax").get("region") or "").lower() == "cn"
+
+
+def span_label(start, end, fallback):
+  hours = round((float(end or 0) - float(start or 0)) / 3_600_000)
+  return f"{hours}h window" if 0 < hours < 48 else fallback
+
+
+def fetch(key):
+  base = "https://api.minimaxi.com" if CN else "https://api.minimax.io"
+  data = http_json(base + "/v1/token_plan/remains", {"Authorization": f"Bearer {key}"}) or {}
+  status = (data.get("base_resp") or {}).get("status_code", 0)
+  if status:
+    raise ValueError((data.get("base_resp") or {}).get("status_msg") or f"status {status}")
+  rows = [r for r in data.get("model_remains") or [] if isinstance(r, dict)]
+  row = next((r for r in rows if r.get("model_name") == "general"), None) or next((r for r in rows if r.get("model_name") != "video"), None)
+  if not row:
+    raise ValueError("no text bucket")
+  limits = [limit(span_label(row.get("start_time"), row.get("end_time"), "Session"),
+                  (100 - float(row.get("current_interval_remaining_percent") or 0)) / 100.0, row.get("end_time"), "Session")]
+  if row.get("weekly_end_time"):
+    limits.append(limit("Weekly (7-day)", (100 - float(row.get("current_weekly_remaining_percent") or 0)) / 100.0, row.get("weekly_end_time")))
+  return {"limits": limits, "tierLabel": "Token Plan"}
+
+
+parse_args()
+remote_record("minimax", "MiniMax", api_key("minimax", ["MINIMAX_API_KEY"], ["minimax", "minimax-cn"]), fetch, HELP)

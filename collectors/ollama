@@ -1,0 +1,24 @@
+#!/usr/bin/python3
+# Ollama Cloud: session / weekly / monthly usage windows.
+import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from _agentusage import api_key, http_json, limit, parse_args, remote_record
+
+HELP = "Set OLLAMA_API_KEY or add {\"ollama\": {\"apiKey\": \"…\"}} to ~/.config/ttt/agents.json."
+WINDOWS = [("session", "Session (5-hour)"), ("weekly", "Weekly (7-day)"), ("monthly", "Monthly (30-day)")]
+
+
+def fetch(key):
+  data = http_json("https://ollama.com/api/usage", {"Authorization": f"Bearer {key}"}) or {}
+  windows = data.get("limits") or {}
+  limits = []
+  for name, label in WINDOWS:
+    window = windows.get(name)
+    if isinstance(window, dict) and window.get("usage") is not None:
+      limits.append(limit(label, float(window["usage"])))
+  return {"limits": limits, "tierLabel": "Ollama Cloud"}
+
+
+parse_args()
+remote_record("ollama", "Ollama Cloud", api_key("ollama", ["OLLAMA_API_KEY"], ["ollama-cloud", "ollama"]), fetch, HELP)

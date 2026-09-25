@@ -1,0 +1,158 @@
+{
+  "schemaVersion": 1,
+  "id": "ttt.agents",
+  "name": "OAgents",
+  "version": "1.0.0",
+  "author": "TiniTinyTerminator",
+  "license": "MIT",
+  "description": "Usage, limits, balances and pace for every AI coding agent in one Omarchy bar panel: Claude Code, Codex, Gemini CLI, Copilot, Cursor, opencode, Amp, Cline and 15 more.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "activation": "on-demand",
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "OAgents",
+    "description": "One bar icon and one panel: rate-limit meters with pace, balances, today, the last week, and the all-time model breakdown for Claude Code, Codex, Gemini CLI, Copilot, Cursor, opencode, Amp, Cline and many more.",
+    "category": "AI",
+    "aliases": [
+      "oagents",
+      "agents-plus",
+      "ai-usage",
+      "tokens",
+      "llm"
+    ],
+    "allowMultiple": false,
+    "defaultSection": "center",
+    "defaults": {
+      "providers": {
+        "amp": {
+          "enabled": true
+        },
+        "claude": {
+          "enabled": true
+        },
+        "cline": {
+          "enabled": true
+        },
+        "codex": {
+          "enabled": true
+        },
+        "copilot": {
+          "enabled": true
+        },
+        "crush": {
+          "enabled": true
+        },
+        "cursor": {
+          "enabled": true
+        },
+        "deepseek": {
+          "enabled": true
+        },
+        "droid": {
+          "enabled": true
+        },
+        "fireworks": {
+          "enabled": true
+        },
+        "gemini": {
+          "enabled": true
+        },
+        "goose": {
+          "enabled": true
+        },
+        "kilocode": {
+          "enabled": true
+        },
+        "minimax": {
+          "enabled": true
+        },
+        "moonshot": {
+          "enabled": true
+        },
+        "novita": {
+          "enabled": true
+        },
+        "ollama": {
+          "enabled": true
+        },
+        "opencode": {
+          "enabled": true
+        },
+        "openrouter": {
+          "enabled": true
+        },
+        "pi": {
+          "enabled": true
+        },
+        "qwen": {
+          "enabled": true
+        },
+        "roo": {
+          "enabled": true
+        },
+        "zai": {
+          "enabled": true
+        }
+      },
+      "refreshIntervalSec": 900,
+      "syncMode": "Off",
+      "syncDir": "",
+      "syncFileName": "",
+      "syncDeviceId": "",
+      "previewMode": false
+    },
+    "schema": [
+      {
+        "key": "refreshIntervalSec",
+        "type": "integer",
+        "label": "Refresh interval (seconds)",
+        "min": 30,
+        "max": 3600,
+        "step": 30,
+        "defaultValue": 900
+      },
+      {
+        "key": "syncMode",
+        "type": "enum",
+        "label": "Synced aggregation",
+        "options": [
+          "Off",
+          "On"
+        ],
+        "defaultValue": "Off",
+        "description": "When On, write this machine's local usage snapshot and merge snapshots from other machines."
+      },
+      {
+        "key": "syncDir",
+        "type": "path",
+        "label": "Sync folder",
+        "defaultValue": "",
+        "description": "A folder synced by Syncthing, Dropbox, rsync, etc."
+      },
+      {
+        "key": "syncFileName",
+        "type": "string",
+        "label": "Snapshot file name",
+        "defaultValue": "",
+        "description": "Optional. Defaults to <hostname>.json. Use a different file name on each machine, such as laptop.json or desktop.json."
+      },
+      {
+        "key": "syncDeviceId",
+        "type": "string",
+        "label": "Device id",
+        "defaultValue": "",
+        "description": "Optional stable device name used inside synced aggregate snapshots."
+      },
+      {
+        "key": "previewMode",
+        "type": "boolean",
+        "label": "Preview mode: sample agents and usage, nothing real is read (for reviews and demos)",
+        "defaultValue": false
+      }
+    ]
+  }
+}

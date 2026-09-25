@@ -1,0 +1,88 @@
+#!/bin/bash
+
+# Regenerate the ttt.agents usage records.
+#   ttt-agent-usage-update [--force] [--limits-only] [--except <agent>]... [agent...]
+#   ttt-agent-usage-update --preview   write sample records instead (preview mode)
+#
+# Runs Omarchy's own omarchy-agent-usage-<agent> collectors (claude, codex,
+# fireworks, …) alongside this plugin's collectors/<agent> scripts and writes
+# one JSON record per agent to ~/.local/state/ttt/agents/usage/, where the
+# panel watches them. A plugin collector with the same name as an Omarchy one
+# wins, so a collector can be overridden by dropping a file in collectors/.
+
+PLUGIN_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+OMARCHY_PATH="${OMARCHY_PATH:-/usr/share/omarchy}"
+USAGE_DIR="${TTT_AGENTS_USAGE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/ttt/agents/usage}"
+
+# Preview mode never touches real data: sample records go to a runtime dir
+# the panel reads instead of the usage dir.
+if [[ " $* " == *" --preview "* ]]; then
+  exec python3 "$PLUGIN_DIR/collectors/_preview.py" "${TTT_AGENTS_PREVIEW_DIR:-${XDG_RUNTIME_DIR:-/tmp}/ttt-agents-preview}"
+fi
+
+mkdir -p "$USAGE_DIR"
+
+flags=()
+only=()
+declare -A excluded
+
+while (( $# > 0 )); do
+  case "$1" in
+  --force | --limits-only) flags+=("$1") ;;
+  --except)
+    excluded[$2]=1
+    shift
+    ;;
+  *) only+=("$1") ;;
+  esac
+  shift
+done
+
+wanted() {
+  local agent="$1"
+  [[ -n ${excluded[$agent]} ]] && return 1
+  (( ${#only[@]} == 0 )) && return 0
+  local candidate
+  for candidate in "${only[@]}"; do
+    [[ $candidate == "$agent" ]] && return 0
+  done
+  return 1
+}
+
+collect() {
+  local collector="$1" agent="$2"
+  local record tmp
+  if ! record=$(timeout 60 "$collector" "${flags[@]}") || [[ -z $record ]] || ! jq -e . >/dev/null 2>&1 <<<"$record"; then
+    echo "ttt-agent-usage-update: $agent collector failed" >&2
+    return 1
+  fi
+  tmp=$(mktemp "$USAGE_DIR/.$agent.XXXXXX")
+  printf '%s\n' "$record" >"$tmp"
+  mv "$tmp" "$USAGE_DIR/$agent.json"
+}
+
+declare -A collectors
+for collector in "$OMARCHY_PATH"/bin/omarchy-agent-usage-*; do
+  [[ -x $collector ]] || continue
+  agent="${collector##*/omarchy-agent-usage-}"
+  [[ $agent == "update" ]] && continue
+  collectors[$agent]="$collector"
+done
+for collector in "$PLUGIN_DIR"/collectors/*; do
+  agent="${collector##*/}"
+  [[ -f $collector && -x $collector && $agent != _* ]] || continue
+  collectors[$agent]="$collector"
+done
+
+pids=()
+for agent in "${!collectors[@]}"; do
+  wanted "$agent" || continue
+  collect "${collectors[$agent]}" "$agent" &
+  pids+=($!)
+done
+
+status=0
+for pid in "${pids[@]}"; do
+  wait "$pid" || status=1
+done
+exit $status

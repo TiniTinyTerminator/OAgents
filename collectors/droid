@@ -1,0 +1,35 @@
+#!/usr/bin/python3
+# Factory Droid: per-session token totals from ~/.factory/sessions/**/*.settings.json.
+import json
+import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from _agentusage import HOME, Usage, cached_scan, emit, local_day, max_age, number, parse_args
+
+ROOT = HOME / ".factory" / "sessions"
+
+
+def scan():
+  usage = Usage()
+  if ROOT.is_dir():
+    for path in ROOT.rglob("*.settings.json"):
+      try:
+        settings = json.loads(path.read_text(encoding="utf-8"))
+        mtime = path.stat().st_mtime
+      except Exception:
+        continue
+      if not isinstance(settings, dict):
+        continue
+      t = settings.get("tokenUsage") or {}
+      # Droid keeps session totals, not per-turn usage, so the whole
+      # session lands on the day it was last active.
+      usage.add(local_day(settings.get("lastActivityAt") or settings.get("updatedAt"), mtime),
+                str(path), settings.get("model") or "droid",
+                t.get("inputTokens"), number(t.get("outputTokens")) + number(t.get("thinkingTokens")),
+                t.get("cacheReadTokens"), t.get("cacheCreationTokens"),
+                prompts=max(1, number(settings.get("messageCount"))))
+  return usage.stats(), True
+
+
+args = parse_args()
+emit("droid", "Droid", cached_scan("droid", scan, max_age(args), str(ROOT)))

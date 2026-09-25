@@ -1,0 +1,17 @@
+#!/usr/bin/python3
+# Novita AI: prepaid balance (amounts arrive in 1/10000 USD).
+import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from _agentusage import api_key, balance, http_json, parse_args, remote_record
+
+HELP = "Set NOVITA_API_KEY or add {\"novita\": {\"apiKey\": \"…\"}} to ~/.config/ttt/agents.json."
+
+
+def fetch(key):
+  data = http_json("https://api.novita.ai/openapi/v1/billing/balance/detail", {"Authorization": f"Bearer {key}"}) or {}
+  return {"balance": balance(float(data["availableBalance"]) / 10000.0), "tierLabel": "Prepaid"}
+
+
+parse_args()
+remote_record("novita", "Novita", api_key("novita", ["NOVITA_API_KEY"], ["novita-ai", "novita"]), fetch, HELP)

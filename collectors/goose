@@ -1,0 +1,70 @@
+#!/usr/bin/python3
+# Goose: per-session token totals from sessions.db (and legacy .jsonl sessions).
+import json
+import os
+import sqlite3
+import sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from _agentusage import XDG_DATA, Usage, cached_scan, emit, local_day, max_age, parse_args, sqlite_ro, table_columns
+
+ROOT = XDG_DATA / "goose" / "sessions"
+
+
+def model_of(raw):
+  try:
+    config = json.loads(raw) if isinstance(raw, str) else (raw or {})
+    return config.get("model_name") or config.get("model") or "goose"
+  except Exception:
+    return "goose"
+
+
+def scan_db(usage):
+  db = ROOT / "sessions.db"
+  if not db.is_file():
+    return True
+  try:
+    conn = sqlite_ro(db)
+  except sqlite3.Error:
+    return False
+  try:
+    cols = table_columns(conn, "sessions")
+    pick = lambda *names: next((n for n in names if n in cols), "NULL")
+    query = "SELECT id, {}, {}, {}, {} FROM sessions".format(
+      pick("updated_at", "created_at"),
+      pick("accumulated_input_tokens", "input_tokens"),
+      pick("accumulated_output_tokens", "output_tokens"),
+      pick("model_config_json"),
+    )
+    for sid, when, inp, out, model in conn.execute(query):
+      usage.add(local_day(when), "goose:" + str(sid), model_of(model), inp, out)
+  except sqlite3.Error:
+    return False
+  finally:
+    conn.close()
+  return True
+
+
+def scan_legacy(usage):
+  for path in ROOT.glob("*.jsonl") if ROOT.is_dir() else []:
+    try:
+      with path.open(encoding="utf-8", errors="replace") as handle:
+        meta = json.loads(handle.readline())
+      mtime = path.stat().st_mtime
+    except Exception:
+      continue
+    if not isinstance(meta, dict):
+      continue
+    usage.add(local_day(None, mtime), "goose:" + path.stem, "goose",
+              meta.get("accumulated_input_tokens") or meta.get("input_tokens"),
+              meta.get("accumulated_output_tokens") or meta.get("output_tokens"))
+
+
+def scan():
+  usage = Usage()
+  complete = scan_db(usage)
+  scan_legacy(usage)
+  return usage.stats(), complete
+
+
+args = parse_args()
+emit("goose", "Goose", cached_scan("goose", scan, max_age(args), str(ROOT)))

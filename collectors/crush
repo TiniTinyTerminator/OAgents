@@ -1,0 +1,61 @@
+#!/usr/bin/python3
+# Crush: per-session token totals from each project's crush.db, found through
+# the project list Crush keeps in ~/.local/share/crush/projects.json.
+import os
+import sqlite3
+import sys
+from pathlib import Path
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from _agentusage import XDG_DATA, Usage, cached_scan, emit, local_day, max_age, parse_args, read_json, sqlite_ro, table_columns
+
+PROJECTS = XDG_DATA / "crush" / "projects.json"
+
+
+def databases():
+  found = []
+  listing = read_json(PROJECTS) or {}
+  for project in listing.get("projects") or []:
+    if not isinstance(project, dict):
+      continue
+    data_dir = project.get("data_dir") or (Path(project.get("path") or "") / ".crush")
+    db = Path(data_dir) / "crush.db"
+    if db.is_file() and db not in found:
+      found.append(db)
+  return found
+
+
+def scan_db(usage, db):
+  try:
+    conn = sqlite_ro(db)
+  except sqlite3.Error:
+    return False
+  try:
+    models = {}
+    if {"session_id", "model"} <= table_columns(conn, "messages"):
+      for sid, model in conn.execute(
+        "SELECT session_id, model FROM messages WHERE model IS NOT NULL AND model != ''"
+        " GROUP BY session_id, model ORDER BY COUNT(*)"
+      ):
+        models[sid] = model  # most-used model wins (ordered ascending)
+    for sid, when, prompt, completion, count in conn.execute(
+      "SELECT id, COALESCE(updated_at, created_at), prompt_tokens, completion_tokens, message_count FROM sessions"
+    ):
+      usage.add(local_day(when), str(db) + ":" + str(sid), models.get(sid, "crush"),
+                prompt, completion, prompts=max(1, (count or 0) // 2))
+  except sqlite3.Error:
+    return False
+  finally:
+    conn.close()
+  return True
+
+
+def scan():
+  usage = Usage()
+  complete = True
+  for db in databases():
+    complete = scan_db(usage, db) and complete
+  return usage.stats(), complete
+
+
+args = parse_args()
+emit("crush", "Crush", cached_scan("crush", scan, max_age(args), str(PROJECTS)))

@@ -1,0 +1,39 @@
+#!/usr/bin/python3
+# Amp: token usage from the thread files in ~/.local/share/amp/threads.
+import json
+import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from _agentusage import XDG_DATA, Usage, cached_scan, emit, local_day, max_age, number, parse_args
+
+ROOT = XDG_DATA / "amp" / "threads"
+
+
+def scan():
+  usage = Usage()
+  if ROOT.is_dir():
+    for path in ROOT.glob("*.json"):
+      try:
+        thread = json.loads(path.read_text(encoding="utf-8"))
+        mtime = path.stat().st_mtime
+      except Exception:
+        continue
+      if not isinstance(thread, dict):
+        continue
+      created = thread.get("created")
+      for message in thread.get("messages") or []:
+        if not isinstance(message, dict) or message.get("role") != "assistant":
+          continue
+        u = message.get("usage") or {}
+        if not isinstance(u, dict):
+          continue
+        meta = message.get("meta") or {}
+        when = u.get("timestamp") or meta.get("sentAt") or created
+        usage.add(local_day(when, mtime), "amp:" + str(thread.get("id") or path.stem),
+                  u.get("model") or "amp", u.get("inputTokens"), u.get("outputTokens"),
+                  u.get("cacheReadInputTokens"), u.get("cacheCreationInputTokens"))
+  return usage.stats(), True
+
+
+args = parse_args()
+emit("amp", "Amp", cached_scan("amp", scan, max_age(args), str(ROOT)))

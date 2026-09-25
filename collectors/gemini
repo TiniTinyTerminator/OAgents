@@ -1,0 +1,19 @@
+#!/usr/bin/python3
+# Gemini CLI: local token usage from ~/.gemini/tmp/*/chats.
+import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from _agentusage import HOME, Usage, cached_scan, emit, max_age, parse_args
+import _gemini_chats
+
+ROOT = HOME / ".gemini" / "tmp"
+
+
+def scan():
+  usage = Usage()
+  complete = _gemini_chats.scan(usage, [ROOT], "gemini")
+  return usage.stats(), complete
+
+
+args = parse_args()
+emit("gemini", "Gemini CLI", cached_scan("gemini", scan, max_age(args), str(ROOT)))

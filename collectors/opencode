@@ -1,0 +1,79 @@
+#!/usr/bin/python3
+# opencode: token usage across every provider, from opencode.db (plus the
+# per-message JSON files older opencode versions wrote).
+import json
+import os
+import sqlite3
+import sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from _agentusage import XDG_DATA, Usage, cached_scan, emit, local_day, max_age, number, parse_args, sqlite_ro
+
+ROOT = XDG_DATA / "opencode"
+DB = ROOT / "opencode.db"
+LEGACY = ROOT / "storage" / "message"
+
+
+def add(usage, session, entry):
+  if not isinstance(entry, dict) or entry.get("role") != "assistant":
+    return
+  tokens = entry.get("tokens") or {}
+  cache = tokens.get("cache") or {}
+  usage.add(
+    local_day((entry.get("time") or {}).get("created")),
+    "opencode:" + str(session),
+    entry.get("modelID") or "unknown",
+    tokens.get("input"),
+    number(tokens.get("output")) + number(tokens.get("reasoning")),
+    cache.get("read"),
+    cache.get("write"),
+  )
+
+
+def scan_db(usage):
+  if not DB.is_file():
+    return True
+  try:
+    conn = sqlite_ro(DB)
+  except sqlite3.Error:
+    return False
+  try:
+    conn.execute("PRAGMA query_only = ON")
+    # Pull only the fields we need out of each (potentially huge) JSON blob.
+    rows = conn.execute(
+      "SELECT session_id,"
+      " json_extract(data, '$.modelID'), json_extract(data, '$.time.created'),"
+      " json_extract(data, '$.tokens.input'), json_extract(data, '$.tokens.output'),"
+      " json_extract(data, '$.tokens.reasoning'), json_extract(data, '$.tokens.cache.read'),"
+      " json_extract(data, '$.tokens.cache.write')"
+      " FROM message WHERE data LIKE '%\"role\"%:%\"assistant\"%' AND json_valid(data)"
+      " AND json_extract(data, '$.role') = 'assistant'"
+    )
+    for session, model, created, inp, out, reasoning, cread, cwrite in rows:
+      usage.add(local_day(created), "opencode:" + str(session), model or "unknown",
+                inp, number(out) + number(reasoning), cread, cwrite)
+  except sqlite3.Error:
+    return False
+  finally:
+    conn.close()
+  return True
+
+
+def scan_legacy(usage):
+  if not LEGACY.is_dir():
+    return
+  for path in LEGACY.glob("*/*.json"):
+    try:
+      add(usage, path.parent.name, json.loads(path.read_text(encoding="utf-8")))
+    except Exception:
+      continue
+
+
+def scan():
+  usage = Usage()
+  complete = scan_db(usage)
+  scan_legacy(usage)
+  return usage.stats(), complete
+
+
+args = parse_args()
+emit("opencode", "opencode", cached_scan("opencode", scan, max_age(args), str(ROOT)))

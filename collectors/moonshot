@@ -1,0 +1,23 @@
+#!/usr/bin/python3
+# Moonshot (Kimi API platform): prepaid balance. Set "region": "cn" in
+# ~/.config/ttt/agents.json for platform.moonshot.cn accounts.
+import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from _agentusage import agent_config, api_key, balance, http_json, parse_args, remote_record
+
+HELP = "Set MOONSHOT_API_KEY or add {\"moonshot\": {\"apiKey\": \"…\"}} to ~/.config/ttt/agents.json."
+CN = str(agent_config("moonshot").get("region") or "").lower() == "cn"
+
+
+def fetch(key):
+  base = "https://api.moonshot.cn" if CN else "https://api.moonshot.ai"
+  data = http_json(base + "/v1/users/me/balance", {"Authorization": f"Bearer {key}"}) or {}
+  if data.get("code") not in (0, None) or data.get("status") is False:
+    raise ValueError(f"API reported code {data.get('code')}")
+  info = data.get("data") or {}
+  return {"balance": balance(float(info.get("available_balance") or 0), currency="CNY" if CN else "USD"), "tierLabel": "Prepaid"}
+
+
+parse_args()
+remote_record("moonshot", "Moonshot", api_key("moonshot", ["MOONSHOT_API_KEY"], ["moonshotai", "moonshotai-cn", "moonshot"]), fetch, HELP)

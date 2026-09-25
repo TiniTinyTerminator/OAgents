@@ -1,0 +1,51 @@
+#!/usr/bin/python3
+# pi / oh-my-pi: token usage across every provider from agent session files.
+import json
+import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from _agentusage import HOME, Usage, cached_scan, emit, local_day, max_age, number, parse_args
+
+ROOTS = [HOME / ".pi" / "agent" / "sessions", HOME / ".omp" / "agent" / "sessions"]
+
+
+def scan():
+  usage = Usage()
+  for root in ROOTS:
+    if not root.is_dir():
+      continue
+    for path in root.rglob("*.jsonl"):
+      seen = set()
+      try:
+        handle = path.open(encoding="utf-8", errors="replace")
+      except OSError:
+        continue
+      with handle:
+        for raw in handle:
+          if '"usage"' not in raw:
+            continue
+          try:
+            entry = json.loads(raw)
+          except Exception:
+            continue
+          if entry.get("type") != "message":
+            continue
+          key = str(entry.get("id") or "")
+          if key and key in seen:
+            continue
+          seen.add(key)
+          message = entry.get("message") or {}
+          if message.get("role") != "assistant":
+            continue
+          u = message.get("usage") or {}
+          inp, out = number(u.get("input")), number(u.get("output"))
+          cread, cwrite = number(u.get("cacheRead")), number(u.get("cacheWrite"))
+          if not (inp or out or cread or cwrite):
+            inp = number(u.get("totalTokens"))
+          usage.add(local_day(entry.get("timestamp") or message.get("timestamp")), str(path),
+                    message.get("model") or "unknown", inp, out, cread, cwrite)
+  return usage.stats(), True
+
+
+args = parse_args()
+emit("pi", "pi", cached_scan("pi", scan, max_age(args), str(ROOTS)))
