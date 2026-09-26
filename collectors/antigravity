@@ -1,0 +1,73 @@
+#!/usr/bin/python3
+# Google Antigravity: token usage from the agy CLI's (and the IDE's)
+# per-conversation SQLite files. Each model call leaves a gen_metadata row
+# whose protobuf carries Codeium-style ModelUsageStats: field 2 input, 3
+# output (thinking + response), 4 cache write, 5 cache read. Timestamps live
+# on the steps table, joined through the row's last_step_index.
+import os
+import sqlite3
+import sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from _agentusage import HOME, Usage, cached_scan, emit, local_day, max_age, parse_args, sqlite_ro
+import _protobuf as pb
+
+ROOTS = [HOME / ".gemini" / "antigravity-cli" / "conversations", HOME / ".gemini" / "antigravity" / "conversations"]
+
+
+def step_times(conn):
+  times = {}
+  for idx, metadata in conn.execute("SELECT idx, metadata FROM steps"):
+    seconds = pb.get(metadata, 1, 1)
+    if isinstance(seconds, int) and seconds > 0:
+      times[idx] = seconds
+  return times
+
+
+def labels(gen):
+  out = {}
+  for entry in pb.all_of(gen, 20):
+    key, value = pb.get(entry, 1), pb.get(entry, 2)
+    if isinstance(key, bytes) and isinstance(value, bytes):
+      out[key.decode(errors="replace")] = value.decode(errors="replace")
+  return out
+
+
+def scan_db(usage, path):
+  try:
+    conn = sqlite_ro(path)
+  except sqlite3.Error:
+    return False
+  try:
+    times = step_times(conn)
+    fallback = max(times.values()) if times else path.stat().st_mtime
+    for (data,) in conn.execute("SELECT data FROM gen_metadata"):
+      gen = pb.get(data, 1)
+      stats = pb.ints(pb.get(gen, 4))
+      if not stats:
+        continue
+      model = pb.get(gen, 19)
+      model = model.decode(errors="replace") if isinstance(model, bytes) and model else "antigravity"
+      try:
+        when = times.get(int(labels(gen).get("last_step_index", "")), fallback)
+      except ValueError:
+        when = fallback
+      usage.add(local_day(when), "antigravity:" + path.stem, model,
+                stats.get(2, 0), stats.get(3, 0), stats.get(5, 0), stats.get(4, 0))
+  except sqlite3.Error:
+    return False
+  finally:
+    conn.close()
+  return True
+
+
+def scan():
+  usage = Usage()
+  complete = True
+  for root in ROOTS:
+    for path in sorted(root.glob("*.db")) if root.is_dir() else []:
+      complete = scan_db(usage, path) and complete
+  return usage.stats(), complete
+
+
+args = parse_args()
+emit("antigravity", "Antigravity", cached_scan("antigravity", scan, max_age(args), str(ROOTS)))

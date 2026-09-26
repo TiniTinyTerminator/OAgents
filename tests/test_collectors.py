@@ -32,6 +32,27 @@ def jsonl(*rows):
   return "\n".join(json.dumps(r) for r in rows) + "\n"
 
 
+def pb_varint(n):
+  out = bytearray()
+  while True:
+    byte, n = n & 0x7F, n >> 7
+    out.append(byte | (0x80 if n else 0))
+    if not n:
+      return bytes(out)
+
+
+def pb(*fields):
+  """Encode (number, value) pairs: ints as varints, bytes/str as length-delimited."""
+  out = b""
+  for number, value in fields:
+    if isinstance(value, int):
+      out += pb_varint(number << 3) + pb_varint(value)
+    else:
+      value = value.encode() if isinstance(value, str) else value
+      out += pb_varint(number << 3 | 2) + pb_varint(len(value)) + value
+  return out
+
+
 def build(home):
   share, config = home / ".local" / "share", home / ".config"
 
@@ -119,6 +140,23 @@ def build(home):
   task(config / "VSCodium/User/globalStorage/rooveterinaryinc.roo-cline/tasks/1", "deepseek-v4")
   task(config / "Code/User/globalStorage/kilocode.kilo-code/tasks/1", "kilo-auto")
 
+  # Antigravity (agy): protobuf ModelUsageStats in gen_metadata, timestamps
+  # on the steps it points at. Step 0 is from 2020, so only step 1 is today.
+  db = home / ".gemini/antigravity-cli/conversations/c1.db"
+  db.parent.mkdir(parents=True, exist_ok=True)
+  conn = sqlite3.connect(db)
+  conn.execute("CREATE TABLE steps (idx INTEGER PRIMARY KEY, metadata BLOB)")
+  conn.execute("CREATE TABLE gen_metadata (idx INTEGER PRIMARY KEY, data BLOB, size INTEGER)")
+  conn.execute("INSERT INTO steps VALUES (0, ?)", (pb((1, pb((1, 1_600_000_000)))),))
+  conn.execute("INSERT INTO steps VALUES (1, ?)", (pb((1, pb((1, NOW_MS // 1000)))),))
+  def gen(step, usage):
+    return pb((1, pb((4, pb(*usage)), (19, "gemini-3.8-flash"),
+                     (20, pb((1, "last_step_index"), (2, str(step)))))))
+  conn.execute("INSERT INTO gen_metadata VALUES (0, ?, 0)", (gen(0, [(1, 1318), (2, 999), (3, 999)]),))
+  conn.execute("INSERT INTO gen_metadata VALUES (1, ?, 0)", (gen(1, [(1, 1318), (2, 100), (3, 50), (5, 1000), (6, 24)]),))
+  conn.commit()
+  conn.close()
+
 
 # agent -> (total tokens today, model expected in modelUsage)
 EXPECTED = {
@@ -133,6 +171,7 @@ EXPECTED = {
   "cline": (110, "claude-sonnet-5"),
   "roo": (110, "deepseek-v4"),
   "kilocode": (110, "kilo-auto"),
+  "antigravity": (1150, "gemini-3.8-flash"),
 }
 
 
@@ -150,7 +189,7 @@ def main():
         assert record["todayTotalTokens"] == tokens, f"todayTotalTokens {record['todayTotalTokens']} != {tokens}"
         assert model in record["modelUsage"], f"model {model} not in {list(record['modelUsage'])}"
         assert record["recentDays"][-1] == {"date": TODAY, "messageCount": tokens}, "recentDays"
-        assert record["activeDays"] == 1, "activeDays"
+        assert record["activeDays"] == (2 if agent == "antigravity" else 1), "activeDays"
         print(f"ok   {agent}")
       except Exception as exc:
         failures += 1

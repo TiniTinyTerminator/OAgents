@@ -5,15 +5,15 @@
 </p>
 
 <p align="center">
-  <b>Rate limits, balances and token usage for 23 AI coding agents and providers, in one Omarchy bar panel.</b>
+  <b>Rate limits, balances and token usage for 24 AI coding agents and providers, in one Omarchy bar panel.</b>
 </p>
 
 <p align="center"><sub>Shown with <a href="#-preview-mode-for-reviews-and-demos">preview mode</a> sample data.</sub></p>
 
 OAgents is Omarchy's built-in **Agents** panel ([`omarchy.agents`][upstream]),
-extended from three agents to 23. The panel is the same: rate-limit meters
+extended from three agents to 24. The panel is the same: rate-limit meters
 with pace, prepaid balances, tokens by day for the last week, and tokens by
-model. OAgents adds 20 more data sources that read your agents' local
+model. OAgents adds 21 more data sources that read your agents' local
 session files or the providers' usage APIs.
 
 [upstream]: https://github.com/omacom/omarchy/tree/947e2fc002d6831c7888b29b5761d59d29e69727/shell/plugins/agents
@@ -47,6 +47,7 @@ session files or the providers' usage APIs.
 | `claude` | Claude Code | Omarchy's collector: transcripts + OAuth limits |
 | `codex` | Codex | Omarchy's collector: sessions + app-server limits |
 | `gemini` | Gemini CLI | `~/.gemini/tmp/*/chats/*` |
+| `antigravity` | Google Antigravity (`agy` CLI) | `~/.gemini/antigravity-cli/conversations/*.db`, `~/.gemini/antigravity/conversations/*.db` |
 | `qwen` | Qwen Code | `~/.qwen/{tmp,projects}/*/chats/*` |
 | `opencode` | opencode (every provider) | `~/.local/share/opencode/opencode.db` + legacy `storage/message` |
 | `pi` | pi / oh-my-pi (every provider) | `~/.pi/agent/sessions`, `~/.omp/agent/sessions` |
@@ -228,6 +229,9 @@ missing.
 - Tabs for tools (opencode, pi) can overlap with tabs for subscriptions
   (Claude Code, Codex). For example, an opencode session on Anthropic counts
   in both the `opencode` tab and the `claude` tab.
+- Antigravity shows token usage only, not its 5-hour and weekly quota: the
+  quota API needs Antigravity's saved Google sign-in, which OAgents doesn't
+  read.
 - Droid and Crush store session totals, not per-turn usage. A whole session
   counts toward the last day it was active.
 - API collectors follow each provider's current response format, and a
@@ -263,6 +267,7 @@ OAgents/
 │   ├── _agentusage.py       # Shared accumulator, cache, credentials, HTTP
 │   ├── _gemini_chats.py     # Gemini CLI / Qwen Code chat parser
 │   ├── _cline_tasks.py      # Cline / Roo / Kilo task parser
+│   ├── _protobuf.py         # Schema-less protobuf reader (Antigravity)
 │   ├── _preview.py          # Preview mode sample records
 │   └── <agent>              # One executable collector per agent
 ├── assets/                  # Agent marks (assets/<id>.svg)
