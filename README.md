@@ -270,7 +270,7 @@ OAgents/
 │   ├── _protobuf.py         # Schema-less protobuf reader (Antigravity)
 │   ├── _preview.py          # Preview mode sample records
 │   └── <agent>              # One executable collector per agent
-├── assets/                  # Agent marks (assets/<id>.svg)
+├── assets/                  # Agent marks (assets/<id>.svg), sources in assets/README.md
 └── tests/
     ├── test_collectors.py
     └── test_api_collectors.py
